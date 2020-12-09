@@ -1,33 +1,36 @@
+use std::collections::BTreeSet;
 
-use chrono::{Date, Local, TimeZone};
-use reqwest::{Url, Client};
 use crate::utils::{URL_RADIO, USER_AGENT};
+use anyhow::{anyhow, Result};
+use chrono::{Date, Local, TimeZone};
 use easy_scraper::Pattern;
 use regex::Regex;
+use reqwest::{Client, Url};
 
 #[derive(Debug)]
 pub struct OnAir {
     times: u32,
     date: Date<Local>,
-    url: Url
+    url: Url,
 }
 
 impl OnAir {
     pub fn date(&self) -> &Date<Local> {
         &self.date
     }
+
+    pub fn times(&self) -> &u32 {
+        &self.times
+    }
+
+    pub fn url(&self) -> &Url {
+        &self.url
+    }
 }
 
-pub async fn get_onair() -> anyhow::Result<Vec<OnAir>> {
-    let client = Client::builder()
-        .user_agent(USER_AGENT)
-        .build()?;
-    let doc = client
-        .get(URL_RADIO)
-        .send()
-        .await?
-        .text()
-        .await?;
+pub async fn get_onair() -> Result<Vec<OnAir>> {
+    let client = Client::builder().user_agent(USER_AGENT).build()?;
+    let doc = client.get(URL_RADIO).send().await?.text().await?;
     let re1 = Regex::new(r"(?P<y>\d{4})-(?P<m>\d{2})-(?P<d>\d{2})").unwrap();
     let re2 = Regex::new(r"\d{3,}").unwrap();
     let pat = r#"
@@ -40,7 +43,8 @@ pub async fn get_onair() -> anyhow::Result<Vec<OnAir>> {
         </li>
     "#;
     let pat = Pattern::new(pat).unwrap();
-    let onairs = pat.matches(&doc)
+    let onairs = pat
+        .matches(&doc)
         .into_iter()
         .filter_map(|x| {
             let title = x.get("title")?;
@@ -53,13 +57,10 @@ pub async fn get_onair() -> anyhow::Result<Vec<OnAir>> {
             let day = cap["d"].parse::<u32>().ok()?;
             let date = Local.ymd(year, month, day);
 
-            let times = re2.captures(title)
-                .and_then(|cap| 
-                    cap.get(0).and_then(|x| 
-                        x.as_str().parse::<u32>().ok()
-                    )
-                )?;
-            
+            let times = re2
+                .captures(title)
+                .and_then(|cap| cap.get(0).and_then(|x| x.as_str().parse::<u32>().ok()))?;
+
             let url = Url::parse(&format!("https:{}", url)).ok()?;
 
             let onair = OnAir { times, date, url };
@@ -67,6 +68,35 @@ pub async fn get_onair() -> anyhow::Result<Vec<OnAir>> {
             Some(onair)
         })
         .collect::<Vec<_>>();
-    
+
+    Ok(onairs)
+}
+
+pub fn wanted_onair_indexes(
+    onairs_len: usize,
+    input: BTreeSet<String>,
+) -> anyhow::Result<BTreeSet<usize>> {
+    let onairs = input
+        .iter()
+        .map(|x| {
+            if x == "all" {
+                let all = (0..onairs_len).into_iter().collect();
+
+                Ok(all)
+            } else if let Ok(x) = x.parse::<usize>() {
+                if (0..onairs_len).contains(&x) {
+                    Ok(vec![x])
+                } else {
+                    Err(anyhow!("unacceptable input"))
+                }
+            } else {
+                Err(anyhow!("unacceptable input"))
+            }
+        })
+        .collect::<Result<Vec<_>>>()?
+        .into_iter()
+        .flatten()
+        .collect();
+
     Ok(onairs)
 }
