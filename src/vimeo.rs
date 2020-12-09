@@ -149,10 +149,6 @@ where
     Ok(())
 }
 
-static MASTER_REGEX: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r#""(https://[^"]+)(video)([^"]+master.json[?][^",]+)""#).unwrap()
-});
-
 pub async fn get_content<U, I>(url: U, from_url: I, filename: String, mp3_bar: ProgressBar, mp4_bar: ProgressBar) -> Result<PathBuf>
 where
     U: IntoUrl,
