@@ -1,11 +1,12 @@
 use std::collections::BTreeSet;
 
 use crate::utils::{URL_RADIO, USER_AGENT};
-use anyhow::{anyhow, Result};
 use chrono::{Date, Local, TimeZone};
 use easy_scraper::Pattern;
 use regex::Regex;
 use reqwest::{Client, Url};
+
+use crate::error::Error;
 
 #[derive(Debug)]
 pub struct OnAir {
@@ -28,7 +29,7 @@ impl OnAir {
     }
 }
 
-pub async fn get_onair() -> Result<Vec<OnAir>> {
+pub async fn get_onair() -> Result<Vec<OnAir>, Error> {
     let client = Client::builder().user_agent(USER_AGENT).build()?;
     let doc = client.get(URL_RADIO).send().await?.text().await?;
     let re1 = Regex::new(r"(?P<y>\d{4})-(?P<m>\d{2})-(?P<d>\d{2})").unwrap();
@@ -75,7 +76,7 @@ pub async fn get_onair() -> Result<Vec<OnAir>> {
 pub fn wanted_onair_indexes(
     onairs_len: usize,
     input: BTreeSet<String>,
-) -> anyhow::Result<BTreeSet<usize>> {
+) -> Result<BTreeSet<usize>, Error> {
     let onairs = input
         .iter()
         .map(|x| {
@@ -87,13 +88,13 @@ pub fn wanted_onair_indexes(
                 if (0..onairs_len).contains(&x) {
                     Ok(vec![x])
                 } else {
-                    Err(anyhow!("unacceptable input"))
+                    Err(Error::UnexceptableInput)
                 }
             } else {
-                Err(anyhow!("unacceptable input"))
+                Err(Error::UnexceptableInput)
             }
         })
-        .collect::<Result<Vec<_>>>()?
+        .collect::<Result<Vec<_>, _>>()?
         .into_iter()
         .flatten()
         .collect();

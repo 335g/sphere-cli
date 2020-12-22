@@ -1,6 +1,5 @@
 use std::{collections::BTreeSet, io::Write};
 
-use anyhow::Result;
 use chrono::Datelike;
 use clap::Clap;
 use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
@@ -8,8 +7,10 @@ use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
 mod radio;
 pub mod utils;
 mod vimeo;
+mod error;
 
 use utils::URL_RADIO;
+use error::{Error, ResultExt};
 
 #[derive(Debug, Clap)]
 struct Opts {
@@ -23,24 +24,25 @@ enum Subcommand {
     Radio,
 }
 
-fn get_or_exit<T>(res: Result<T>) -> T {
-    match res {
-        Ok(x) => x,
-        Err(e) => {
-            eprintln!("ERROR: {:?}", e);
-            std::process::exit(1);
-        }
-    }
-}
+// fn get_or_exit<T>(res: Result<T>) -> T {
+//     match res {
+//         Ok(x) => x,
+//         Err(e) => {
+//             eprintln!("ERROR: {:?}", e);
+//             std::process::exit(1);
+//         }
+//     }
+// }
 
 #[tokio::main]
-async fn main() -> Result<()> {
+async fn main() -> Result<(), Error> {
     let opts = Opts::parse();
 
     match opts.subcmd {
         Subcommand::Radio => {
-            let onairs = radio::get_onair().await;
-            let mut onairs = get_or_exit(onairs);
+            let mut onairs = radio::get_onair()
+                .await
+                .unwrap_or_exit();
             onairs.sort_by(|a, b| b.date().cmp(a.date()));
 
             {
@@ -70,8 +72,8 @@ async fn main() -> Result<()> {
                 .map(|s| s.to_string())
                 .collect::<BTreeSet<_>>();
 
-            let wanted_indexes = radio::wanted_onair_indexes(onairs.len(), inputs);
-            let wanted_indexes = get_or_exit(wanted_indexes);
+            let wanted_indexes = radio::wanted_onair_indexes(onairs.len(), inputs)
+                .unwrap_or_exit();
 
             let wanted_onairs = onairs
                 .into_iter()
@@ -91,7 +93,7 @@ async fn main() -> Result<()> {
                 let mp3_bar = bars.add(ProgressBar::new(1));
                 let mp4_bar = bars.add(ProgressBar::new(1));
                 mp3_bar.set_style(style.clone());
-                mp3_bar.set_message(&format!("audio: [{}]", onair.times()));
+                mp3_bar.set_message(&format!("audio:[{}]", onair.times()));
                 mp4_bar.set_style(style.clone());
                 mp4_bar.set_message(&format!("video:[{}]", onair.times()));
                 
@@ -109,26 +111,23 @@ async fn main() -> Result<()> {
                 println!("url: {:?}", &url);
                 
                 let handle = tokio::spawn(async move {
-                    match vimeo::get_content(url, URL_RADIO, filename, mp3_bar, mp4_bar).await {
-                        Ok(_) => {
-                            println!("OK");
-                        }
-                        Err(e) => {
-                            eprintln!("ERROR: {:?}", e);
-                        }
-                    }
-                    
+                    vimeo::get_content(url, URL_RADIO, filename, mp3_bar, mp4_bar).await
                 });
 
                 handles.push(handle);
             }
 
+            bars.join().unwrap();
+
             for handle in handles {
                 let res = handle.await;
-                println!("fin");
+                
+                match res {
+                    Ok(Ok(path)) => println!("Completed: {}", path.display()),
+                    Ok(Err(e)) => eprintln!("ERROR: {:?}", e),
+                    Err(e) => eprintln!("ERROR: {:?}", e),
+                }
             }
-
-            bars.join().unwrap();
         }
     }
 

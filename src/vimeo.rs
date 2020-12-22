@@ -1,6 +1,5 @@
 
 use std::path::PathBuf;
-use anyhow::{anyhow, Result};
 use chrono::{Datelike, Local, Timelike};
 use indicatif::ProgressBar;
 use once_cell::sync::Lazy;
@@ -13,6 +12,7 @@ use serde::Deserialize;
 use tokio::io::AsyncWriteExt;
 
 use crate::utils::USER_AGENT;
+use crate::error::Error;
 
 #[derive(Debug, Deserialize)]
 struct Content {
@@ -21,11 +21,11 @@ struct Content {
 }
 
 impl Content {
-    fn choose_the_best_content(self) -> Result<(Audio, Video)> {
+    fn choose_the_best_content(self) -> Result<(Audio, Video), Error> {
         let audio = self.audio
             .into_iter()
             .next()
-            .ok_or(anyhow!("no audio"))?;
+            .ok_or(Error::NoAudio)?;
         let video = self.video
             .into_iter()
             .fold(None, |acc, x| {
@@ -40,7 +40,7 @@ impl Content {
                     }
                 }
             })
-            .ok_or(anyhow!("no video"))?;
+            .ok_or(Error::NoVideo)?;
 
         Ok((audio, video))
     }
@@ -64,7 +64,7 @@ impl Media for Audio {
 }
 
 impl Audio {
-    async fn get_contents<W>(&self, url: Url, writer: W, pb: ProgressBar) -> Result<()>
+    async fn get_contents<W>(&self, url: Url, writer: W, pb: ProgressBar) -> Result<(), Error>
     where
         W: AsyncWriteExt + Unpin
     {
@@ -95,7 +95,7 @@ impl Media for Video {
 }
 
 impl Video {
-    async fn get_contents<W>(&self, url: Url, writer: W, pb: ProgressBar) -> Result<()>
+    async fn get_contents<W>(&self, url: Url, writer: W, pb: ProgressBar) -> Result<(), Error>
     where
         W: AsyncWriteExt + Unpin
     {
@@ -118,7 +118,7 @@ trait Media {
     fn segments(&self) -> &Vec<Segment>;
 }
 
-async fn write_segments<W, M>(media: &M, base_url: Url, mut writer: W, pb: ProgressBar) -> Result<()>
+async fn write_segments<W, M>(media: &M, base_url: Url, mut writer: W, pb: ProgressBar) -> Result<(), Error>
 where
     M: Media,
     W: tokio::io::AsyncWrite + Unpin
@@ -136,7 +136,7 @@ where
             .await?;
 
         if !resp.status().is_success() {
-            return Err(anyhow!("cannot download segment: {:?}", seg))
+            return Err(Error::Network)
         }
 
         let bytes = resp.bytes().await?;
@@ -149,14 +149,13 @@ where
     Ok(())
 }
 
-pub async fn get_content<U, I>(url: U, from_url: I, filename: String, mp3_bar: ProgressBar, mp4_bar: ProgressBar) -> Result<PathBuf>
+pub async fn get_content<U, I>(url: U, from_url: I, filename: String, mp3_bar: ProgressBar, mp4_bar: ProgressBar) -> Result<PathBuf, Error>
 where
     U: IntoUrl,
     I: Into<&'static str>,
 {
     // check `ffmpeg`
-    let _  = which("ffmpeg")
-        .map_err(|e| anyhow!("Not ffmpeg: {:?}", e))?;
+    let _  = which("ffmpeg")?;
 
     // access the url
     let client = reqwest::Client::builder()
@@ -179,7 +178,7 @@ where
             .into_iter()
             .filter(|m| master_regex.is_match(&m["content"]))
             .next()
-            .ok_or(anyhow!("no master json"))?;
+            .ok_or(Error::NoMasterJson)?;
         let cap = master_regex.captures(&map["content"]).unwrap();
         
         let info_url = Url::parse(&format!("{}{}{}", &cap[1], &cap[2], &cap[3]))?;
