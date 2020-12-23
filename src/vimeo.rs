@@ -2,7 +2,6 @@
 use std::path::PathBuf;
 use chrono::{Datelike, Local, Timelike};
 use indicatif::ProgressBar;
-use once_cell::sync::Lazy;
 use regex::Regex;
 use reqwest::{IntoUrl, Url};
 use tempfile::TempDir;
