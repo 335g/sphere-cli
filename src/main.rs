@@ -24,16 +24,6 @@ enum Subcommand {
     Radio,
 }
 
-// fn get_or_exit<T>(res: Result<T>) -> T {
-//     match res {
-//         Ok(x) => x,
-//         Err(e) => {
-//             eprintln!("ERROR: {:?}", e);
-//             std::process::exit(1);
-//         }
-//     }
-// }
-
 #[tokio::main]
 async fn main() -> Result<(), Error> {
     let opts = Opts::parse();
